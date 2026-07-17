@@ -144,8 +144,10 @@ function reconcileSale(saleId, newStatus) {
     if (newStatus === 'approved') {
       adjustment = Math.round((sale.earning - sale.advance_amount) * 100) / 100;
     } else {
-      // rejected: claw back the advance (negative = debit)
-      adjustment = Math.round(-sale.advance_amount * 100) / 100;
+      // rejected: claw back the advance (negative = debit).
+      // || 0 coerces JavaScript's -0 (produced when advance_amount = 0) to 0,
+      // so strict equality checks in tests and callers behave as expected.
+      adjustment = Math.round(-sale.advance_amount * 100) / 100 || 0;
     }
 
     ledgerService.addEntry({

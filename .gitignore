@@ -1,6 +1,6 @@
 backend/node_modules/
-backend/*.db
-backend/*.db-journal
+backend/data/
+backend/tests/test-data/
 .env
 npm-debug.log
 .DS_Store

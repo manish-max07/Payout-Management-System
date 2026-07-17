@@ -48,6 +48,11 @@ function addEntry({ userId, saleId = null, withdrawalId = null, type, amount, no
 
   const id = uuidv4();
 
+  // Ensure a user row exists — ledger_entries.user_id has a FK to users(id).
+  // Using INSERT OR IGNORE means we never overwrite an existing user record,
+  // and callers don't need to manually create a user before writing ledger entries.
+  db.prepare('INSERT OR IGNORE INTO users (id) VALUES (?)').run(userId);
+
   db.prepare(`
     INSERT INTO ledger_entries (id, user_id, sale_id, withdrawal_id, type, amount, note, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))

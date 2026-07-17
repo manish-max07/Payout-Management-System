@@ -19,14 +19,18 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 // ---------------------------------------------------------------------------
-// Ensure the data directory exists before opening the database file
+// Resolve the database file path.
+// DB_PATH env var lets tests (or CI) point at a separate database file
+// without touching the real production data.
+// Default: backend/data/payout.db (relative to this file's location).
 // ---------------------------------------------------------------------------
-const dataDir = path.join(__dirname, '..', 'data');
+const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'payout.db');
+const dataDir = path.dirname(dbPath);
+
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const dbPath = path.join(dataDir, 'payout.db');
 const db = new Database(dbPath);
 
 // ---------------------------------------------------------------------------
