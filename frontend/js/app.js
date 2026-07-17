@@ -1,0 +1,420 @@
+/**
+ * app.js — Payout Management System Test Dashboard
+ *
+ * Sections:
+ *   1. Config & API helper
+ *   2. Utility / formatting helpers
+ *   3. Error toast
+ *   4. Connectivity check
+ *   5. User & Balance
+ *   6. Sales
+ *   7. Advance Payout Job
+ *   8. Withdrawals
+ *   9. Ledger
+ *  10. Refresh-all & page bootstrap
+ */
+
+'use strict';
+
+/* ============================================================
+   1. Config & API helper
+   ============================================================ */
+
+const API_BASE = 'http://localhost:3000/api';
+
+/**
+ * Generic fetch wrapper.
+ * @param {'GET'|'POST'|'PATCH'|'DELETE'} method
+ * @param {string} path  - relative path, e.g. '/sales'
+ * @param {object} [body]
+ * @returns {Promise<any>} parsed JSON
+ * @throws {Error} with message from { error: '...' } body on non-ok responses
+ */
+async function apiCall(method, path, body) {
+  const options = {
+    method,
+    headers: {},
+  };
+  if (body !== undefined) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(`${API_BASE}${path}`, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+/* ============================================================
+   2. Utility / formatting helpers
+   ============================================================ */
+
+/** Format a number as ₹12.34 */
+function formatCurrency(value) {
+  const n = Number(value);
+  if (isNaN(n)) return '₹—';
+  const sign = n >= 0 ? '+' : '';
+  return (n >= 0 ? '₹' : '−₹') + Math.abs(n).toFixed(2);
+}
+
+/** Format a currency value WITHOUT the + sign prefix (for balance display) */
+function formatBalance(value) {
+  const n = Number(value);
+  if (isNaN(n)) return '₹—';
+  return '₹' + n.toFixed(2);
+}
+
+/** Format a date string to a readable local format */
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+  return d.toLocaleString(undefined, {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/** Shorten a UUID to first 8 chars for display */
+function shortId(id) {
+  return id ? `<span class="id-chip">${id.slice(0, 8)}…</span>` : '—';
+}
+
+/** Build a colored badge */
+function badge(text, extraClass) {
+  const cls = extraClass || `badge-${text}`;
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+/** DOM helper — querySelector shorthand */
+const $ = (selector) => document.querySelector(selector);
+
+/* ============================================================
+   3. Error toast
+   ============================================================ */
+
+let _toastTimer = null;
+
+function showError(message) {
+  const toast = $('#error-toast');
+  const msg   = $('#error-toast-msg');
+  msg.textContent = message;
+  toast.classList.remove('hidden');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(hideError, 5000);
+}
+
+function hideError() {
+  $('#error-toast').classList.add('hidden');
+}
+
+$('#error-toast-close').addEventListener('click', hideError);
+
+/* ============================================================
+   4. Connectivity check
+   ============================================================ */
+
+async function checkConnectivity() {
+  const dot   = $('#connectivity-dot');
+  const label = $('#connectivity-label');
+
+  dot.className = 'connectivity-dot checking';
+  label.textContent = 'Backend: checking…';
+
+  try {
+    await apiCall('GET', '/health');
+    dot.className = 'connectivity-dot connected';
+    label.textContent = 'Backend: connected ✓';
+  } catch {
+    dot.className = 'connectivity-dot disconnected';
+    label.textContent = 'Backend: unreachable';
+    showError('Cannot reach backend — is `node server.js` running on port 3000?');
+  }
+}
+
+/* ============================================================
+   5. User & Balance
+   ============================================================ */
+
+function getUserId() {
+  return $('#userId').value.trim();
+}
+
+async function loadBalance(userId) {
+  const el = $('#balance-value');
+  try {
+    const data = await apiCall('GET', `/users/${encodeURIComponent(userId)}/balance`);
+    el.textContent = formatBalance(data.balance);
+    el.style.color = data.balance >= 0 ? 'inherit' : 'var(--color-danger)';
+  } catch {
+    el.textContent = '₹—';
+  }
+}
+
+$('#btn-refresh-balance').addEventListener('click', () => {
+  const userId = getUserId();
+  if (!userId) return showError('Please enter a User ID.');
+  loadBalance(userId);
+});
+
+/* ============================================================
+   6. Sales
+   ============================================================ */
+
+async function loadSales(userId) {
+  const tbody = $('#sales-tbody');
+  try {
+    const sales = await apiCall('GET', `/sales?userId=${encodeURIComponent(userId)}`);
+    if (!sales.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No sales yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = sales.map(sale => {
+      const statusBadge = badge(sale.status, `badge-${sale.status}`);
+      const advIcon = sale.advance_paid
+        ? `<span class="check-yes">✓</span>`
+        : `<span class="check-no">—</span>`;
+      const actions = sale.status === 'pending'
+        ? `<div class="action-btns">
+             <button class="btn btn-success" onclick="reconcileSale('${sale.id}','approved')">Approve</button>
+             <button class="btn btn-danger"  onclick="reconcileSale('${sale.id}','rejected')">Reject</button>
+           </div>`
+        : `<span class="check-no">—</span>`;
+
+      return `<tr>
+        <td>${shortId(sale.id)}</td>
+        <td>${escHtml(sale.brand)}</td>
+        <td>₹${Number(sale.earning).toFixed(2)}</td>
+        <td>${statusBadge}</td>
+        <td>${advIcon}</td>
+        <td>${sale.advance_amount > 0 ? '₹' + Number(sale.advance_amount).toFixed(2) : '—'}</td>
+        <td>${formatDate(sale.created_at)}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-row">Failed to load sales.</td></tr>`;
+  }
+}
+
+/** Create sale */
+$('#btn-create-sale').addEventListener('click', async () => {
+  const userId  = getUserId();
+  const brand   = $('#sale-brand').value.trim();
+  const earning = parseFloat($('#sale-earning').value);
+
+  if (!userId) return showError('Please enter a User ID.');
+
+  try {
+    const sale = await apiCall('POST', '/sales', { userId, brand, earning });
+    const area = $('#create-sale-confirmation');
+    const pre  = $('#create-sale-result');
+    pre.textContent = JSON.stringify(sale, null, 2);
+    area.classList.remove('hidden');
+    hideError();
+    await refreshAll(userId);
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+/** Refresh sales button */
+$('#btn-refresh-sales').addEventListener('click', () => {
+  const userId = getUserId();
+  if (!userId) return showError('Please enter a User ID.');
+  loadSales(userId);
+});
+
+/** Reconcile a sale (called from inline buttons in the table) */
+window.reconcileSale = async function(saleId, status) {
+  const userId = getUserId();
+  try {
+    await apiCall('POST', `/sales/${saleId}/reconcile`, { status });
+    hideError();
+    await refreshAll(userId);
+  } catch (err) {
+    showError(err.message);
+  }
+};
+
+/** Minimal HTML escaping to prevent XSS from brand names etc. */
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ============================================================
+   7. Advance Payout Job
+   ============================================================ */
+
+$('#btn-run-advance').addEventListener('click', async () => {
+  const userId = getUserId();
+  const btn    = $('#btn-run-advance');
+  const result = $('#advance-job-result');
+
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+
+  try {
+    const data = await apiCall('POST', '/payouts/advance/run');
+    result.classList.remove('hidden');
+    result.textContent =
+      `✓ Processed ${data.processedCount} sale${data.processedCount !== 1 ? 's' : ''} — ` +
+      `Total advanced: ₹${Number(data.totalAdvancePaid).toFixed(2)}`;
+    hideError();
+    await refreshAll(userId);
+  } catch (err) {
+    showError(err.message);
+    result.classList.add('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Advance Payout Job';
+  }
+});
+
+/* ============================================================
+   8. Withdrawals
+   ============================================================ */
+
+async function loadWithdrawals(userId) {
+  const tbody = $('#withdrawals-tbody');
+  try {
+    const withdrawals = await apiCall('GET', `/withdrawals?userId=${encodeURIComponent(userId)}`);
+    if (!withdrawals.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No withdrawals yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = withdrawals.map(w => {
+      const actions = w.status === 'PENDING'
+        ? `<div class="action-btns">
+             <button class="btn btn-success" onclick="settleWithdrawal('${w.id}','COMPLETED')">Complete</button>
+             <button class="btn btn-danger"  onclick="settleWithdrawal('${w.id}','FAILED')">Fail</button>
+             <button class="btn btn-warning" onclick="settleWithdrawal('${w.id}','CANCELLED')">Cancel</button>
+             <button class="btn btn-neutral" onclick="settleWithdrawal('${w.id}','REJECTED')">Reject</button>
+           </div>`
+        : `<span class="check-no">—</span>`;
+
+      return `<tr>
+        <td>${shortId(w.id)}</td>
+        <td>₹${Number(w.amount).toFixed(2)}</td>
+        <td>${badge(w.status)}</td>
+        <td>${formatDate(w.created_at)}</td>
+        <td>${formatDate(w.settled_at)}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">Failed to load withdrawals.</td></tr>`;
+  }
+}
+
+/** Initiate withdrawal */
+$('#btn-initiate-withdrawal').addEventListener('click', async () => {
+  const userId = getUserId();
+  const statusArea = $('#withdrawal-status-area');
+
+  if (!userId) return showError('Please enter a User ID.');
+
+  try {
+    const w = await apiCall('POST', '/withdrawals', { userId });
+    statusArea.textContent = `Withdrawal of ₹${Number(w.amount).toFixed(2)} initiated (ID: ${w.id.slice(0,8)}…)`;
+    statusArea.style.color = 'var(--color-success)';
+    hideError();
+    await refreshAll(userId);
+  } catch (err) {
+    statusArea.textContent = err.message;
+    statusArea.style.color = 'var(--color-danger)';
+    showError(err.message);
+  }
+});
+
+/** Refresh withdrawals button */
+$('#btn-refresh-withdrawals').addEventListener('click', () => {
+  const userId = getUserId();
+  if (!userId) return showError('Please enter a User ID.');
+  loadWithdrawals(userId);
+});
+
+/** Settle a withdrawal (called from inline buttons) */
+window.settleWithdrawal = async function(withdrawalId, outcome) {
+  const userId = getUserId();
+  try {
+    await apiCall('PATCH', `/withdrawals/${withdrawalId}/settle`, { outcome });
+    hideError();
+    await refreshAll(userId);
+  } catch (err) {
+    showError(err.message);
+  }
+};
+
+/* ============================================================
+   9. Ledger
+   ============================================================ */
+
+async function loadLedger(userId) {
+  const tbody = $('#ledger-tbody');
+  try {
+    const data = await apiCall('GET', `/users/${encodeURIComponent(userId)}/ledger`);
+    const entries = data.entries || [];
+    if (!entries.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty-row">No ledger entries yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = entries.map(entry => {
+      const amount = Number(entry.amount);
+      const amountClass = amount >= 0 ? 'amount-positive' : 'amount-negative';
+      const amountStr = amount >= 0
+        ? `+₹${amount.toFixed(2)}`
+        : `−₹${Math.abs(amount).toFixed(2)}`;
+
+      return `<tr>
+        <td>${badge(entry.type, `badge-${entry.type}`)}</td>
+        <td class="${amountClass}">${amountStr}</td>
+        <td style="white-space:normal;max-width:320px">${escHtml(entry.note || '—')}</td>
+        <td>${formatDate(entry.created_at)}</td>
+      </tr>`;
+    }).join('');
+  } catch {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-row">Failed to load ledger.</td></tr>`;
+  }
+}
+
+$('#btn-refresh-ledger').addEventListener('click', () => {
+  const userId = getUserId();
+  if (!userId) return showError('Please enter a User ID.');
+  loadLedger(userId);
+});
+
+/* ============================================================
+   10. Refresh-all & page bootstrap
+   ============================================================ */
+
+/**
+ * Re-fetch everything that is scoped to the current user.
+ * Call this after every mutating action.
+ */
+async function refreshAll(userId) {
+  await Promise.all([
+    loadBalance(userId),
+    loadSales(userId),
+    loadWithdrawals(userId),
+    loadLedger(userId),
+  ]);
+}
+
+/** Re-run all loads when the user ID field changes */
+$('#userId').addEventListener('change', () => {
+  const userId = getUserId();
+  if (userId) refreshAll(userId);
+});
+
+/** Bootstrap on page load */
+document.addEventListener('DOMContentLoaded', async () => {
+  await checkConnectivity();
+  const userId = getUserId();
+  if (userId) await refreshAll(userId);
+});
