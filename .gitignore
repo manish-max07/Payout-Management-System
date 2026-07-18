@@ -5,3 +5,4 @@ backend/tests/test-data/
 npm-debug.log
 .DS_Store
 coverage/
+frontend/js/config.js
