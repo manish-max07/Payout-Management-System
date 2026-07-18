@@ -3,165 +3,210 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Payout Management System — Test Dashboard</title>
-  <meta name="description" content="Admin test dashboard for the Payout Management System. Create sales, run advance payouts, reconcile sales, and manage withdrawals." />
+  <title>Payout Management System</title>
+  <meta name="description" content="Two-panel dashboard: Admin Console for reconciliation and User App for payout tracking." />
+
+  <!-- Google Fonts: Space Grotesk (headers) + Inter (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
-  <!-- ===== HEADER ===== -->
-  <header class="site-header">
-    <div class="container header-inner">
-      <h1 class="site-title">Payout Management System <span class="subtitle">Test Dashboard</span></h1>
-      <div class="connectivity" id="connectivity">
-        <span class="connectivity-dot" id="connectivity-dot"></span>
-        <span class="connectivity-label" id="connectivity-label">Backend: checking…</span>
-      </div>
+  <!-- ===== NOTIFICATION BANNER ===== -->
+  <div class="notif-banner hidden" id="notif-banner" role="alert">
+    <span class="notif-icon">⚠</span>
+    <span id="notif-msg"></span>
+    <button class="notif-close" id="notif-close" aria-label="Dismiss">×</button>
+  </div>
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="topbar-logo">⬡</span>
+      <span class="topbar-title">Payout Management System</span>
+    </div>
+
+    <div class="topbar-user">
+      <label for="shared-user-id" class="topbar-user-label">Viewing as</label>
+      <input
+        type="text"
+        id="shared-user-id"
+        class="topbar-user-input"
+        value="john_doe"
+        placeholder="user id"
+        spellcheck="false"
+      />
+    </div>
+
+    <div class="topbar-status">
+      <span class="connectivity-dot" id="connectivity-dot"></span>
+      <span class="connectivity-label" id="connectivity-label">checking…</span>
     </div>
   </header>
 
-  <!-- ===== GLOBAL ERROR TOAST ===== -->
-  <div class="container">
-    <div class="error-toast hidden" id="error-toast" role="alert">
-      <span id="error-toast-msg"></span>
-      <button class="toast-close" id="error-toast-close" aria-label="Dismiss">×</button>
-    </div>
-  </div>
+  <!-- ===== MAIN PANELS ===== -->
+  <main class="panels-grid">
 
-  <main class="container">
+    <!-- ========== LEFT: ADMIN CONSOLE ========== -->
+    <section class="panel panel-admin" aria-label="Admin Console">
 
-    <!-- ===== 1. USER & BALANCE ===== -->
-    <section class="card" id="section-user">
-      <h2>User</h2>
-      <div class="user-row">
-        <div class="field-group">
-          <label for="userId">User ID</label>
-          <input type="text" id="userId" value="john_doe" placeholder="Enter user ID" />
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Admin Console</h2>
+          <p class="panel-subtitle">Reconciliation &amp; Operations</p>
         </div>
-        <div class="balance-display" id="balance-display">
-          Balance: <strong id="balance-value">₹—</strong>
+        <span class="panel-badge panel-badge-admin">ADMIN</span>
+      </div>
+
+      <!-- Create Sale -->
+      <div class="admin-card" id="card-create-sale">
+        <h3 class="card-heading">Create Test Sale</h3>
+        <p class="card-hint">Simulates a new affiliate sale entering the system.</p>
+        <div class="form-row">
+          <div class="field">
+            <label for="sale-brand">Brand</label>
+            <input type="text" id="sale-brand" value="brand_1" placeholder="e.g. Nike" />
+          </div>
+          <div class="field">
+            <label for="sale-earning">Earning (₹)</label>
+            <input type="number" id="sale-earning" value="40" min="0.01" step="0.01" />
+          </div>
+          <button class="btn btn-primary" id="btn-create-sale">
+            <span class="btn-text">Create Sale</span>
+          </button>
         </div>
-        <button class="btn btn-secondary" id="btn-refresh-balance">Refresh Balance</button>
+        <div class="inline-result hidden" id="create-sale-result"></div>
       </div>
-    </section>
 
-    <!-- ===== 2. CREATE SALE ===== -->
-    <section class="card" id="section-create-sale">
-      <h2>Create Sale</h2>
-      <div class="form-row">
-        <div class="field-group">
-          <label for="sale-brand">Brand</label>
-          <input type="text" id="sale-brand" value="brand_1" placeholder="e.g. Nike" />
+      <!-- Advance Payout Job -->
+      <div class="admin-card" id="card-advance-job">
+        <h3 class="card-heading">Advance Payout Job</h3>
+        <p class="card-hint">Processes all pending, un-advanced sales and credits 10% of each earning. Safe to run multiple times — idempotent at the database level.</p>
+        <button class="btn btn-accent" id="btn-run-advance">
+          <span class="btn-icon">▶</span>
+          <span class="btn-text">Run Advance Payout Job</span>
+        </button>
+        <div class="inline-result hidden" id="advance-job-result"></div>
+      </div>
+
+      <!-- Pending Reconciliation -->
+      <div class="admin-card" id="card-pending">
+        <div class="card-heading-row">
+          <h3 class="card-heading">Pending Reconciliation</h3>
+          <span class="queue-count" id="pending-count">0 in queue</span>
         </div>
-        <div class="field-group">
-          <label for="sale-earning">Earning (₹)</label>
-          <input type="number" id="sale-earning" value="40" min="0.01" step="0.01" />
+        <p class="card-hint">Sales awaiting a decision. Approve to release the remaining payout; reject to claw back the advance.</p>
+        <div class="table-wrap">
+          <table class="data-table" id="pending-table">
+            <thead>
+              <tr>
+                <th>Brand</th>
+                <th>Earning</th>
+                <th>Advance</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="pending-tbody">
+              <tr><td colspan="5" class="empty-cell">No pending sales.</td></tr>
+            </tbody>
+          </table>
         </div>
-        <button class="btn btn-primary" id="btn-create-sale">Create Sale</button>
       </div>
-      <div class="confirmation-area hidden" id="create-sale-confirmation">
-        <strong>Sale created:</strong>
-        <pre id="create-sale-result"></pre>
+
+      <!-- All Sales History -->
+      <div class="admin-card admin-card-secondary" id="card-all-sales">
+        <div class="card-heading-row">
+          <h3 class="card-heading">All Sales History</h3>
+          <button class="btn btn-ghost btn-sm" id="btn-refresh-sales">↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table data-table-sm" id="all-sales-table">
+            <thead>
+              <tr>
+                <th>Brand</th>
+                <th>Earning</th>
+                <th>Status</th>
+                <th>Advance Paid</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody id="all-sales-tbody">
+              <tr><td colspan="5" class="empty-cell">No sales yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
+
     </section>
 
-    <!-- ===== 3. SALES TABLE ===== -->
-    <section class="card" id="section-sales">
-      <div class="section-header">
-        <h2>Sales</h2>
-        <button class="btn btn-secondary" id="btn-refresh-sales">Refresh Sales</button>
-      </div>
-      <div class="table-wrapper">
-        <table id="sales-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Brand</th>
-              <th>Earning</th>
-              <th>Status</th>
-              <th>Advance Paid</th>
-              <th>Advance Amount</th>
-              <th>Created At</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="sales-tbody">
-            <tr><td colspan="8" class="empty-row">No sales yet.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <!-- ========== RIGHT: USER PHONE ========== -->
+    <section class="panel panel-user" aria-label="User App">
 
-    <!-- ===== 4. ADVANCE PAYOUT JOB ===== -->
-    <section class="card" id="section-payouts">
-      <h2>Advance Payout Job</h2>
-      <p class="section-desc">Finds every <em>pending</em>, <em>un-advanced</em> sale and credits 10% of earnings as an advance. Safe to run multiple times.</p>
-      <button class="btn btn-primary" id="btn-run-advance">Run Advance Payout Job</button>
-      <div class="job-result hidden" id="advance-job-result"></div>
-    </section>
+      <!-- Phone frame wrapper -->
+      <div class="phone-frame">
+        <div class="phone-bezel">
+          <div class="phone-notch"></div>
 
-    <!-- ===== 5. WITHDRAWALS ===== -->
-    <section class="card" id="section-withdrawals">
-      <div class="section-header">
-        <h2>Withdrawals</h2>
-        <button class="btn btn-secondary" id="btn-refresh-withdrawals">Refresh Withdrawals</button>
-      </div>
-      <div class="withdrawal-action-row">
-        <button class="btn btn-primary" id="btn-initiate-withdrawal">Withdraw Balance</button>
-        <span class="withdrawal-status-area" id="withdrawal-status-area"></span>
-      </div>
-      <div class="table-wrapper">
-        <table id="withdrawals-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Amount</th>
-              <th>Status</th>
-              <th>Created At</th>
-              <th>Settled At</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="withdrawals-tbody">
-            <tr><td colspan="6" class="empty-row">No withdrawals yet.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+          <!-- Phone screen (scrollable) -->
+          <div class="phone-screen">
 
-    <!-- ===== 6. LEDGER ===== -->
-    <section class="card" id="section-ledger">
-      <div class="section-header">
-        <h2>Ledger <span class="subtitle-small">(Audit Trail)</span></h2>
-        <button class="btn btn-secondary" id="btn-refresh-ledger">Refresh Ledger</button>
-      </div>
-      <div class="table-wrapper">
-        <table id="ledger-table">
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Amount</th>
-              <th>Note</th>
-              <th>Created At</th>
-            </tr>
-          </thead>
-          <tbody id="ledger-tbody">
-            <tr><td colspan="4" class="empty-row">No ledger entries yet.</td></tr>
-          </tbody>
-        </table>
-      </div>
+            <!-- Phone app header -->
+            <div class="phone-app-header">
+              <span class="phone-app-icon">💸</span>
+              <span class="phone-app-name">My Payouts</span>
+              <button class="btn btn-ghost btn-sm" id="btn-refresh-all" title="Refresh everything">↻</button>
+            </div>
+
+            <!-- Balance hero -->
+            <div class="balance-hero">
+              <p class="balance-label">Available Balance</p>
+              <p class="balance-amount" id="balance-amount">₹—</p>
+              <button class="btn btn-withdraw" id="btn-withdraw" disabled>
+                Withdraw ₹—
+              </button>
+            </div>
+
+            <!-- Tabs -->
+            <div class="phone-tabs">
+              <button class="tab-btn tab-active" data-tab="tab-sales">Sales</button>
+              <button class="tab-btn" data-tab="tab-withdrawals">Withdrawals</button>
+              <button class="tab-btn" data-tab="tab-activity">Activity</button>
+            </div>
+
+            <!-- Tab: My Sales -->
+            <div class="tab-content tab-active" id="tab-sales">
+              <div class="sale-cards" id="user-sale-cards">
+                <p class="phone-empty">No sales yet.</p>
+              </div>
+            </div>
+
+            <!-- Tab: Withdrawals -->
+            <div class="tab-content" id="tab-withdrawals">
+              <div class="withdrawal-list" id="withdrawal-list">
+                <p class="phone-empty">No withdrawals yet.</p>
+              </div>
+            </div>
+
+            <!-- Tab: Activity (Ledger) -->
+            <div class="tab-content" id="tab-activity">
+              <div class="activity-timeline" id="activity-timeline">
+                <p class="phone-empty">No activity yet.</p>
+              </div>
+            </div>
+
+          </div><!-- /phone-screen -->
+        </div><!-- /phone-bezel -->
+      </div><!-- /phone-frame -->
+
     </section>
 
   </main>
 
-  <footer class="site-footer">
-    <div class="container">
-      Payout Management System &mdash; Local Dev Dashboard
-    </div>
-  </footer>
-
-  <!-- config.js is auto-generated by scripts/generate-config.js — not committed to git.
-       It sets window.API_BASE_URL before app.js runs. Must NOT be deferred. -->
+  <!-- config.js sets window.API_BASE_URL — must NOT be deferred -->
   <script src="js/config.js"></script>
   <script src="js/app.js" defer></script>
 </body>
