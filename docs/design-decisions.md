@@ -101,3 +101,30 @@ The schema and service interfaces are designed to be database-agnostic enough th
 - **Separation of concerns:** sale creation and advance payment are distinct business events. Decoupling them means the advance percentage or batch eligibility criteria can change without touching `saleService.createSale()`.
 
 **Trade-off:** In a real deployment, the batch job would be triggered by a scheduler (cron, BullMQ, etc.) rather than a manual HTTP call. The HTTP endpoint (`POST /api/payouts/advance/run`) exists to make the batch job inspectable and triggerable during development and review — it would be protected by admin authentication in production. The core job logic (`runAdvancePayoutJob()`) is already written as a pure function with no HTTP coupling, so wiring it to a scheduler requires only adding a scheduler call alongside the existing route.
+
+---
+
+### 7. Reconciliation Exposed as a REST Endpoint, Not Tied to Any Specific Caller
+
+**Decision:** Reconciliation is implemented as `POST /api/sales/:id/reconcile` — a generic endpoint with no built-in assumption about who or what invokes it. The underlying logic lives entirely in `payoutService.reconcileSale()`, which is caller-agnostic.
+
+**Reasoning:**
+- **Matches the assignment's framing:** the assignment explicitly frames reconciliation as an "administrator" action — a deliberate, auditable decision point. In the real world, return/delivery confirmation often arrives via CSV export, email, or a manual brand dashboard rather than a clean webhook. A human checkpoint also allows intervention on suspicious returns or disputes before money is clawed back from a creator's account.
+- **Future-proofing without rearchitecting:** because `payoutService.reconcileSale()` has no dependency on its caller, the same endpoint works identically whether triggered by a human clicking "Approve" in the admin console or by an automated webhook handler reacting to a brand's returns feed. Supporting a future automated reconciliation pipeline requires only adding a new caller (e.g. a webhook route) — the service layer and its idempotency guarantees remain unchanged.
+- **Auditability:** the ledger entry written by `reconcileSale()` records the outcome (`approved`/`rejected`) and the exact adjustment amount in its `note` field, giving a permanent, inspectable record regardless of which caller triggered it.
+
+**Trade-off:** The current implementation has no authentication on the reconcile endpoint — any caller can approve or reject any sale. In production this endpoint would be gated behind admin-only middleware (JWT role check or similar). The separation of endpoint logic from business logic makes adding that gate straightforward without touching `payoutService`.
+
+---
+
+### 8. Advance Payout Job Exposed as an On-Demand Endpoint Rather Than a Hidden Cron Schedule
+
+**Decision:** The advance payout batch job is triggered via `POST /api/payouts/advance/run` rather than running silently on a schedule. The underlying function (`payoutService.runAdvancePayoutJob()`) is identical regardless of what invokes it.
+
+**Reasoning:**
+- **Idempotency is demonstrable, not just claimed:** the spec explicitly requires the system to tolerate the job "running multiple times" without double-paying a sale. Exposing it as a callable, repeatable HTTP action lets this guarantee be directly verified — clicking the button five times leaves the balance exactly the same as clicking it once. A silent cron schedule would make this property much harder to demonstrate to a reviewer in real time.
+- **Reviewer experience:** it lets the advance payout flow be verified within seconds rather than waiting for a scheduled tick. This is not a workaround — it is the standard pattern real systems use: a cron job is simply a timer that calls the same function the button does.
+- **Same trigger pattern as production:** in a production deployment, a scheduler (cron, BullMQ, cloud scheduler) would call `runAdvancePayoutJob()` directly or hit the same endpoint behind an internal network with an admin token. The button in the frontend admin console is architecturally equivalent — it is the scheduled call, fired by a click instead of a timer. No rearchitecting is required to move from manual to scheduled execution.
+
+**Trade-off:** As with reconciliation (Decision 7), the endpoint currently has no authentication. In production it would be restricted to internal or admin-authenticated callers and would not appear in a public-facing API. The frontend "Run" button is appropriate for a test dashboard; it would be replaced by a scheduler integration for production use.
+
